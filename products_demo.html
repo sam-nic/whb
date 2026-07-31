@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Отбор изделий</title>
+<style>
+  :root{
+    --bg:#f4f6fb; --card:#ffffff; --ink:#1a2233; --muted:#6b7686;
+    --line:#e4e8f0; --accent:#3a6df0; --accent-ink:#fff;
+    --ok:#1f9d55; --okbg:#e8f7ee; --err:#d64545; --errbg:#fdecec;
+    --chip:#eef2fb; --field:#f7f9fd;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#12151c; --card:#1b1f28; --ink:#e8ecf3; --muted:#98a2b3;
+      --line:#2a303c; --accent:#5b86f5; --chip:#232936; --field:#232936;
+      --okbg:#12281c; --errbg:#2a1717;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex; align-items:stretch; justify-content:center; padding:0;
+  }
+  .card{
+    background:var(--card); width:100%; max-width:none; min-height:100vh;
+    border:none; border-radius:0; box-shadow:none; overflow:hidden;
+    display:flex; flex-direction:column;
+  }
+  header{padding:18px 20px 12px}
+  h1{font-size:18px; margin:0 0 4px}
+  .sub{color:var(--muted); font-size:13px; display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .badge{font-size:11px; padding:2px 8px; border-radius:20px; background:var(--chip); color:var(--muted); font-weight:600}
+  .badge.live{background:var(--okbg); color:var(--ok)}
+  .badge.demo{background:#fff4e0; color:#b9770a}
+  @media (prefers-color-scheme: dark){ .badge.demo{background:#2b2410; color:#e6b84d} }
+  .head-row{display:flex; gap:44px; align-items:center; flex-wrap:wrap}
+  .titlebox{flex:0 0 auto}
+  .ms{display:flex; flex-direction:column; gap:3px; flex:1 1 240px; min-width:0; position:relative}
+  .ms > label{font-size:12px; color:var(--muted)}
+  .ms-btn{padding:9px 10px; border-radius:9px; border:1px solid var(--line); background:var(--field); color:var(--ink);
+    font-size:13px; width:100%; text-align:left; cursor:pointer; display:flex; justify-content:space-between; gap:8px; align-items:center}
+  .ms-btn.on{border-color:var(--accent)}
+  .ms-btn .cap{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .ms-btn .arw{flex:none; color:var(--muted); font-size:11px}
+  .ms-pop{position:absolute; top:100%; left:0; right:0; z-index:20; margin-top:4px; max-height:320px; overflow:auto;
+    background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:0 12px 34px rgba(20,30,60,.18); padding:6px}
+  .ms-pop.hidden{display:none}
+  .ms-opt{display:flex; gap:10px; align-items:center; padding:8px; border-radius:8px; cursor:pointer; font-size:13px}
+  .ms-opt:hover{background:var(--chip)}
+  .ms-opt input{width:17px;height:17px;accent-color:var(--accent);flex:none;cursor:pointer}
+  .ms-head{display:flex; justify-content:flex-end; padding:2px 4px 6px; border-bottom:1px solid var(--line); margin-bottom:4px; position:sticky; top:0; background:var(--card)}
+  .ms-reset{background:none; border:none; color:var(--accent); cursor:pointer; font-size:12px; padding:2px 4px}
+  .chips{display:flex; flex-wrap:wrap; gap:6px; padding:6px 20px 0}
+  .chip{display:inline-flex; align-items:center; gap:4px; background:var(--chip); border:1px solid var(--line); border-radius:20px; padding:3px 4px 3px 11px; font-size:12px}
+  .chip .ck{opacity:.6; margin-right:2px}
+  .chip .cv{font-weight:600}
+  .chip button{background:none; border:none; color:var(--muted); cursor:pointer; font-size:15px; line-height:1; padding:0 5px; border-radius:50%}
+  .chip button:hover{color:var(--err)}
+  .chips-reset{align-self:center; margin-left:6px}
+  .toolbar{display:flex; align-items:center; gap:14px; padding:8px 20px 4px}
+  .link{background:none;border:none;color:var(--accent);cursor:pointer;font-size:13px;padding:4px 0;white-space:nowrap}
+  .link.danger{color:var(--err)}
+  .count{font-size:13px; color:var(--muted); margin-left:auto; text-align:right}
+  .count b{color:var(--ink); font-variant-numeric:tabular-nums}
+  .colhead{display:flex; align-items:center; gap:12px; padding:2px 22px 4px; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.02em}
+  .colhead .sp{flex:1 1 auto}
+  .colhead .h-sklad{flex:none; width:70px; text-align:right}
+  .colhead .h-ship{flex:none; width:104px; text-align:right}
+  ul.list{list-style:none; margin:0; padding:4px 10px 10px; flex:1 1 auto; min-height:0; overflow:auto}
+  li.row{display:flex; gap:12px; align-items:center; padding:9px 12px; border-radius:10px; cursor:pointer}
+  li.row:hover{background:var(--chip)}
+  li.row.sel{background:var(--chip)}
+  li.row .chk{width:19px;height:19px;accent-color:var(--accent);flex:none;pointer-events:none}
+  li.row .t{flex:1; min-width:0}
+  li.row .nm{display:block}
+  li.row .meta{font-size:12px; color:var(--muted); margin-top:2px}
+  li.row .qty{flex:none; width:70px; text-align:right; font-weight:700; font-variant-numeric:tabular-nums}
+  li.row .ship{flex:none; width:104px}
+  li.row .ship input{width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:8px;
+    background:var(--field); color:var(--ink); font-size:14px; text-align:right; font-variant-numeric:tabular-nums}
+  li.row .ship input::-webkit-inner-spin-button{margin-left:6px}   /* зазор между цифрой и стрелками */
+  li.row .ship input.bad{border-color:var(--err); color:var(--err); background:var(--errbg)}
+  li.group{display:flex; justify-content:space-between; align-items:center; gap:10px;
+    padding:10px 12px; margin:10px 0 2px; cursor:pointer; border-radius:8px;
+    background:var(--chip); font-weight:700; user-select:none}
+  li.group:first-child{margin-top:2px}
+  li.group:hover{background:var(--accent); color:#fff}
+  li.group .gcount{flex:none; font-weight:500; font-size:12px; color:var(--muted)}
+  li.group:hover .gcount{color:#e6ecff}
+  .state{padding:36px 20px; text-align:center; color:var(--muted)}
+  footer{padding:14px 20px 20px; border-top:1px solid var(--line)}
+  button.go{
+    width:100%; border:none; border-radius:12px; padding:14px;
+    background:var(--accent); color:var(--accent-ink); font-size:16px; font-weight:600; cursor:pointer;
+  }
+  button.go:disabled{opacity:.45; cursor:not-allowed}
+  button.go:active:not(:disabled){transform:scale(.99)}
+  .msg{padding:12px 14px; border-radius:10px; margin:0 20px 16px; font-size:13px; display:none}
+  .msg.ok{display:block; background:var(--okbg); color:var(--ok)}
+  .msg.err{display:block; background:var(--errbg); color:var(--err)}
+  .done{text-align:center; padding:40px 24px}
+  .done .ic{font-size:44px}
+  .done h2{margin:12px 0 6px; font-size:20px}
+  .done p{color:var(--muted); margin:0}
+</style>
+</head>
+<body>
+<div class="card" id="app">
+  <header>
+    <div class="head-row">
+      <div class="titlebox">
+        <h1>Отбор изделий</h1>
+        <div class="sub">
+          <span id="taskLabel">Задача: —</span>
+          <span class="badge" id="modeBadge">…</span>
+        </div>
+      </div>
+      <div class="ms" id="msDeal" style="display:none">
+        <label>Сделка</label>
+        <button type="button" class="ms-btn"><span class="cap">Все</span><span class="arw">▼</span></button>
+        <div class="ms-pop hidden"></div>
+      </div>
+    </div>
+  </header>
+
+  <div class="chips" id="chips" style="display:none"></div>
+
+  <div class="toolbar" id="toolbar" style="display:none">
+    <button class="link" id="toggleAll">Выбрать все</button>
+    <button class="link danger" id="clearAll" style="display:none">Очистить все</button>
+    <span class="count" id="counter">Выбрано: 0</span>
+  </div>
+
+  <div class="colhead" id="colhead" style="display:none">
+    <span class="sp"></span>
+    <span class="h-sklad">На складе</span>
+    <span class="h-ship">Отгружаем</span>
+  </div>
+
+  <ul class="list" id="list"></ul>
+  <div class="state" id="state">Загрузка изделий…</div>
+
+  <div class="msg" id="msg"></div>
+
+  <footer>
+    <button class="go" id="go" disabled>Готово</button>
+  </footer>
+</div>
+
+<script>
+/* ============================================================
+   НАСТРОЙКИ
+   ============================================================ */
+const CONFIG = {
+  BASE:  "https://whb.planfix.ru/rest",
+  TOKEN: "b26ef8c845d7a959e8c1149aa7f9a1ad",   // whb: read-only + комментарии
+  LIVE:  true,                                  // false = демо, в Planfix не пишет
+
+  DIRECTORY_ID: 7090,   // справочник "Доступные к перемещению изделия"
+  DATATAG_ID:   4040,   // аналитика "Отгружаемые изделия"
+
+  // поля справочника 7090:
+  F_NAME: 18752, F_QTY: 18756, F_DEAL: 18898, F_STORE: 18894,
+  // поля аналитики 4040:
+  DT_ITEM: 17828,   // Изделие  (ссылка на запись справочника 7090)
+  DT_SHIPPED: 17832 // Отгружено (число)
+};
+
+/* ============================================================
+   ЛОГИКА
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+const taskId = qs.get("task") || qs.get("taskId") || qs.get("id") || "";
+const forcedStore = qs.get("store") || "";   // id "Места хранения" (справочник 7116) — жёсткий фильтр списка
+
+$("taskLabel").textContent = taskId ? ("Задача №" + taskId) : "Задача не указана в URL";
+const liveReady = CONFIG.LIVE && CONFIG.TOKEN && taskId;
+$("modeBadge").textContent = liveReady ? "LIVE" : "ДЕМО";
+$("modeBadge").className = "badge " + (liveReady ? "live" : "demo");
+
+const api = (path, body) => fetch(CONFIG.BASE + path, {
+  method: "POST",
+  headers: { "Authorization": "Bearer " + CONFIG.TOKEN, "Content-Type": "application/json" },
+  body: JSON.stringify(body)
+}).then(r => r.json());
+const apiGET = (path) => fetch(CONFIG.BASE + path, {
+  headers: { "Authorization": "Bearer " + CONFIG.TOKEN }
+}).then(r => r.json());
+const apiDELETE = (path) => fetch(CONFIG.BASE + path, {
+  method: "DELETE", headers: { "Authorization": "Bearer " + CONFIG.TOKEN }
+}).then(r => r.json().catch(() => ({})));
+
+const cf = (entry, fid) => (entry.customFieldData.find(c => c.field.id === fid) || {});
+// убрать префикс "[ДД361] " (номер сделки) из названия изделия
+const stripPrefix = s => String(s || "").replace(/^\s*\[[^\]]*\]\s*/, "");
+// «Отгружаем» валиден: число, > 0 и ≤ «На складе»
+const shipValid = x => Number.isFinite(x._ship) && x._ship > 0 && x._ship <= x.qty;
+const esc = s => String(s == null ? "" : s).replace(/[<>&]/g, c => ({ "<":"&lt;", ">":"&gt;", "&":"&amp;" }[c]));
+
+// разбор имени задачи-перемещения: "Перемещение 98 Цех 2 → Цех 4 | 26-06-2026"
+function parseMove(name){
+  name = String(name || "");
+  const m = name.match(/Перемещени[ея]\s*№?\s*(\d+)/i);
+  let route = name.split("|")[0];
+  if (m) route = route.slice(route.indexOf(m[0]) + m[0].length);
+  const a = route.split(/→|->|—›|›/);
+  return { num: m ? m[1] : "", from: (a[0] || "").trim(), to: (a[1] || "").trim() };
+}
+// заголовок из имени задачи: «Перемещение №98 / из Цех 2 в Цех 4» (номер и цеха — жирным)
+function setHeader(name){
+  const p = parseMove(name);
+  if (!p.num && !p.from && !p.to) return;   // не перемещение — оставляем как есть
+  if (p.num) document.querySelector("header h1").innerHTML = "Перемещение №<b>" + esc(p.num) + "</b>";
+  if (p.from || p.to) $("taskLabel").innerHTML = "из <b>" + esc(p.from) + "</b> в <b>" + esc(p.to) + "</b>";
+}
+
+let ITEMS = [];                // { key, name, qty, _ship, _sel, dealId, dealName, storeId, storeName }
+let existingEntryKeys = [];    // ключи уже добавленных на задачу записей 4040 (для затирания)
+
+async function loadAll(){
+  const out = [];
+  for (let offset = 0; offset < 2000; offset += 100){
+    const d = await api(`/directory/${CONFIG.DIRECTORY_ID}/entry/list`, {
+      offset, pageSize: 100,
+      fields: `key,${CONFIG.F_NAME},${CONFIG.F_QTY},${CONFIG.F_DEAL},${CONFIG.F_STORE}`
+    });
+    if (d.result !== "success") throw new Error(d.error || "ошибка чтения справочника");
+    const rows = d.directoryEntries || [];
+    out.push(...rows);
+    if (rows.length < 100) break;
+  }
+  return out.map(e => {
+    const deal  = cf(e, CONFIG.F_DEAL).value  || null;
+    const store = cf(e, CONFIG.F_STORE).value || null;
+    const qty   = Number(cf(e, CONFIG.F_QTY).value || 0);
+    return {
+      key: e.key,
+      name: cf(e, CONFIG.F_NAME).value || "(без названия)",
+      qty,
+      _ship: qty,          // «Отгружаем» по умолчанию = «На складе»
+      dealId:   deal ? deal.id : "",   dealName:  deal ? deal.name  : "—",
+      storeId:  store ? store.id : "", storeName: store ? store.value : "—"
+    };
+  }).filter(x => x.qty > 0);   // только доступные (кол-во > 0); архивные API не отдаёт
+}
+
+// уже добавленная на задачу аналитика 4040 → пред-отметка изделий и значения «Отгружаем»
+async function loadExisting(){
+  if (!liveReady) return;
+  const d = await apiGET(`/task/${encodeURIComponent(taskId)}?fields=id,name,dataTags`);
+  setHeader((d.task || {}).name);   // заголовок из имени задачи-перемещения
+  const rows = (((d.task || {}).dataTags) || [])
+    .filter(r => (r.dataTag || {}).id === CONFIG.DATATAG_ID && r.key);
+  existingEntryKeys = rows.map(r => r.key);
+  for (const r of rows){
+    const e = await apiGET(`/datatag/entry/${r.key}?fields=${CONFIG.DT_ITEM},${CONFIG.DT_SHIPPED}`);
+    const fields  = ((e.entry || {}).customFieldData) || [];
+    const itemVal = (fields.find(c => c.field.id === CONFIG.DT_ITEM)    || {}).value; // {id: ключ 7090}
+    const shipVal = (fields.find(c => c.field.id === CONFIG.DT_SHIPPED) || {}).value;
+    const it = itemVal ? ITEMS.find(x => x.key === itemVal.id) : null;
+    if (it){ it._sel = true; if (shipVal != null) it._ship = Number(shipVal); }
+  }
+}
+
+/* ---- фильтр по сделкам (мультивыбор) ---- */
+const FSEL = new Set();          // выбранные dealId (пусто = «Все»)
+let dealNames = new Map();
+const msDeal = () => $("msDeal");
+const shownItems = () => ITEMS.filter(x => !FSEL.size || FSEL.has(String(x.dealId)));
+
+function closePop(){ const p = msDeal().querySelector(".ms-pop"); if (p) p.classList.add("hidden"); }
+
+function updateCap(){
+  const cap = msDeal().querySelector(".cap"), btn = msDeal().querySelector(".ms-btn");
+  if (!FSEL.size) cap.textContent = "Все";
+  else if (FSEL.size === 1) cap.textContent = dealNames.get([...FSEL][0]) || "1 выбрана";
+  else cap.textContent = "Сделок: " + FSEL.size;
+  btn.classList.toggle("on", FSEL.size > 0);
+}
+
+function buildDealFilter(pairs){
+  const btn = msDeal().querySelector(".ms-btn");
+  const pop = msDeal().querySelector(".ms-pop");
+  const seen = new Map();
+  pairs.forEach(({id, name}) => { const s = String(id); if (id !== "" && !seen.has(s)) seen.set(s, name); });
+  dealNames = seen;
+  const entries = [...seen.entries()].sort((a,b) => String(a[1]).localeCompare(String(b[1]), 'ru'));
+  pop.innerHTML = "";
+  const head = document.createElement("div"); head.className = "ms-head";
+  head.innerHTML = '<button type="button" class="ms-reset">Сбросить</button>';
+  head.querySelector(".ms-reset").addEventListener("click", (e) => {
+    e.stopPropagation(); FSEL.clear();
+    pop.querySelectorAll(".ms-opt input").forEach(b => b.checked = false);
+    updateCap(); render();
+  });
+  pop.appendChild(head);
+  entries.forEach(([id, name]) => {
+    const o = document.createElement("label"); o.className = "ms-opt"; o.dataset.id = id;
+    o.innerHTML = '<input type="checkbox"><span></span>';
+    o.querySelector("span").textContent = name;
+    const box = o.querySelector("input");
+    box.checked = FSEL.has(id);
+    box.addEventListener("change", () => {
+      if (box.checked) FSEL.add(id); else FSEL.delete(id);
+      updateCap(); render();
+    });
+    pop.appendChild(o);
+  });
+  btn.onclick = (e) => { e.stopPropagation(); const willOpen = pop.classList.contains("hidden"); closePop(); if (willOpen) pop.classList.remove("hidden"); };
+  pop.onclick = (e) => e.stopPropagation();
+  updateCap();
+}
+
+function renderChips(){
+  const box = $("chips"); box.innerHTML = "";
+  FSEL.forEach(id => {
+    const chip = document.createElement("span"); chip.className = "chip";
+    chip.innerHTML = '<span class="ck">Сделка:</span><span class="cv"></span><button title="Убрать">×</button>';
+    chip.querySelector(".cv").textContent = dealNames.get(id) || id;
+    chip.querySelector("button").addEventListener("click", () => {
+      FSEL.delete(id);
+      const opt = [...msDeal().querySelectorAll(".ms-opt")].find(o => o.dataset.id === id);
+      if (opt) opt.querySelector("input").checked = false;
+      updateCap(); render();
+    });
+    box.appendChild(chip);
+  });
+  if (FSEL.size){
+    const rb = document.createElement("button");
+    rb.className = "link chips-reset"; rb.textContent = "Сбросить всё";
+    rb.addEventListener("click", () => {
+      FSEL.clear(); msDeal().querySelectorAll(".ms-opt input").forEach(b => b.checked = false);
+      updateCap(); render();
+    });
+    box.appendChild(rb);
+  }
+  box.style.display = FSEL.size ? "flex" : "none";
+}
+
+document.addEventListener("click", () => closePop());
+
+function render(){
+  const list = $("list"); list.innerHTML = "";
+  const shown = shownItems();
+
+  // группировка по сделке (порядок сохраняется)
+  const groups = []; const byKey = new Map();
+  shown.forEach(x => {
+    const prefix = (x.name.match(/^\s*\[([^\]]*)\]/) || [,""])[1];
+    const key = String(x.dealId || ("p:" + prefix));
+    let g = byKey.get(key);
+    if (!g){ g = { key, name: x.dealName || prefix || "Без сделки", items: [] }; byKey.set(key, g); groups.push(g); }
+    g.items.push(x);
+  });
+
+  groups.forEach(g => {
+    // кликабельный заголовок сделки — выбирает/снимает всю группу
+    const head = document.createElement("li");
+    head.className = "group";
+    head.title = "Выбрать всю сделку";
+    head.innerHTML = '<span class="gname"></span><span class="gcount"></span>';
+    head.querySelector(".gname").textContent = g.name;
+    const gQty = g.items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
+    head.querySelector(".gcount").textContent = g.items.length + " поз. / " + gQty + " изд.";
+    head.addEventListener("click", () => {
+      const all = g.items.every(i => i._sel);
+      g.items.forEach(i => i._sel = !all);
+      render();
+    });
+    list.appendChild(head);
+
+    g.items.forEach(x => {
+      const li = document.createElement("li");
+      li.className = "row" + (x._sel ? " sel" : "");
+      li.innerHTML =
+        '<input type="checkbox" class="chk">' +
+        '<span class="t"><span class="nm"></span></span>' +
+        '<span class="qty"></span>' +
+        '<span class="ship"><input type="number" min="1" step="1" inputmode="numeric"></span>';
+      li.querySelector(".nm").textContent = stripPrefix(x.name);   // без префикса [ДД…]
+      li.querySelector(".qty").textContent = x.qty;                // «На складе»
+      const chk = li.querySelector(".chk");
+      chk.checked = !!x._sel;
+      const inp = li.querySelector(".ship input");
+      inp.max = x.qty;
+      inp.value = Number.isFinite(x._ship) ? x._ship : "";
+      inp.classList.toggle("bad", !shipValid(x));
+      // клик по строке (кроме поля «Отгружаем») — переключить выбор
+      li.addEventListener("click", (e) => {
+        if (e.target.closest(".ship")) return;
+        x._sel = !x._sel;
+        chk.checked = x._sel;
+        li.classList.toggle("sel", x._sel);
+        refresh();
+      });
+      // ручной ввод «Отгружаем» + валидация (>0 и ≤ «На складе»)
+      inp.addEventListener("input", () => {
+        x._ship = parseFloat(String(inp.value).replace(",", "."));
+        inp.classList.toggle("bad", !shipValid(x));
+        refresh();
+      });
+      list.appendChild(li);
+    });
+  });
+
+  $("state").style.display = shown.length ? "none" : "block";
+  if (!shown.length) $("state").textContent = "Нет изделий по выбранным фильтрам";
+  renderChips();
+  refresh();
+}
+
+const selected = () => ITEMS.filter(x => x._sel);
+const sumShip = arr => arr.reduce((s, x) => s + (Number.isFinite(x._ship) ? x._ship : 0), 0);
+
+function refresh(){
+  const sel = selected();
+  const n = sel.length;
+  // позиции / штуки (сумма «Отгружаем»)
+  $("counter").innerHTML = 'Выбрано: <b>' + n + '</b> поз. / <b>' + sumShip(sel) + '</b> изд.';
+  // «Готово» активна, только если выбрано ≥1 и у всех выбранных корректное «Отгружаем»
+  $("go").disabled = n === 0 || sel.some(x => !shipValid(x));
+  $("clearAll").style.display = n > 0 ? "" : "none";   // кнопка очистки — только когда что-то выбрано
+}
+
+$("toggleAll").addEventListener("click", () => {
+  // только выделяет всё показанное (снятие — кнопкой «Очистить все»)
+  shownItems().forEach(x => x._sel = true);
+  render();
+});
+$("clearAll").addEventListener("click", () => { ITEMS.forEach(x => x._sel = false); render(); });   // снять весь выбор
+
+function showMsg(t, kind){ const m=$("msg"); m.textContent=t; m.className="msg "+kind; }
+
+function finishScreen(n){
+  $("app").innerHTML =
+    '<div class="done"><div class="ic">✅</div><h2>Готово</h2>' +
+    '<p>Отгружено позиций: ' + n + '<br>Окно можно закрыть.</p></div>';
+  setTimeout(() => { try { window.close(); } catch(e){} }, 1200);
+}
+
+$("go").addEventListener("click", async () => {
+  const sel = selected();
+  if (!sel.length) return;
+  $("go").disabled = true; $("go").textContent = "Отправка…";
+
+  // Аналитика 4040 через POST /task/{id}/datatags/  (создаёт комментарий с записями).
+  // items[] — по строке на каждое выбранное изделие.
+  const body = {
+    dataTag: { id: CONFIG.DATATAG_ID },
+    items: sel.map(x => ({
+      customFieldData: [
+        { field: { id: CONFIG.DT_ITEM },    value: { id: x.key } },  // Изделие -> запись справочника 7090
+        { field: { id: CONFIG.DT_SHIPPED }, value: x._ship }         // Отгружаем = введённое количество
+      ]
+    }))
+  };
+
+  if (!liveReady){
+    console.log("[ДЕМО] POST /task/" + taskId + "/datatags/\n" + JSON.stringify(body, null, 2));
+    showMsg("Демо-режим: в Planfix не отправлено. Позиций: " + sel.length, "ok");
+    setTimeout(() => finishScreen(sel.length), 700);
+    return;
+  }
+
+  try{
+    const d = await api(`/task/${encodeURIComponent(taskId)}/datatags/`, body);
+    if (d.result !== "success") throw new Error(d.error || "ошибка отправки");
+    // затираем прежние записи 4040 на этой задаче
+    await Promise.all(existingEntryKeys.map(k => apiDELETE(`/datatag/entry/${k}`)));
+    existingEntryKeys = [];
+    finishScreen(sel.length);
+  }catch(err){
+    showMsg("Не удалось отправить в Planfix: " + err.message, "err");
+    $("go").disabled = false; $("go").textContent = "Готово";
+  }
+});
+
+// старт
+(async () => {
+  try{
+    ITEMS = await loadAll();
+    // Жёсткий фильтр по Месту хранения из URL (?store=...): принимает id ИЛИ название места
+    if (forcedStore){
+      const norm = s => String(s == null ? "" : s).trim().toLowerCase();
+      ITEMS = ITEMS.filter(x => String(x.storeId) === forcedStore || norm(x.storeName) === norm(forcedStore));
+    }
+    await loadExisting();   // пред-отметка изделий, уже добавленных в аналитику задачи
+    buildDealFilter(ITEMS.map(x => ({ id: x.dealId, name: x.dealName })));
+    $("msDeal").style.display = "flex";
+    $("toolbar").style.display = "flex";
+    $("colhead").style.display = "flex";
+    if (!ITEMS.length){ $("state").textContent = forcedStore ? "Нет изделий по этому месту хранения (кол-во > 0)" : "Нет доступных изделий (кол-во > 0)"; }
+    render();
+  }catch(err){
+    $("state").textContent = "Ошибка загрузки: " + err.message;
+  }
+})();
+</script>
+</body>
+</html>

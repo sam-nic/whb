@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Отгрузка изделий — запуск</title>
+<style>
+  :root{ --bg:#f4f6fb; --card:#fff; --ink:#1a2233; --muted:#6b7686; --line:#e4e8f0; --accent:#3a6df0; }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#12151c; --card:#1b1f28; --ink:#e8ecf3; --muted:#98a2b3; --line:#2a303c; --accent:#5b86f5; }
+  }
+  *{box-sizing:border-box} html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--ink);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;align-items:center;justify-content:center;padding:24px}
+  .card{background:var(--card);max-width:420px;width:100%;border-radius:16px;
+    border:1px solid var(--line);box-shadow:0 10px 40px rgba(20,30,60,.10);padding:28px;text-align:center}
+  h1{font-size:19px;margin:0 0 6px}
+  p{color:var(--muted);margin:0 0 20px;font-size:14px}
+  button{border:none;border-radius:12px;padding:14px 22px;background:var(--accent);color:#fff;
+    font-size:16px;font-weight:600;cursor:pointer;width:100%}
+  button:active{transform:scale(.99)}
+  .hint{margin-top:14px;font-size:12px;color:var(--muted)}
+  .err{color:#d64545}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1 id="ttl">Отгрузка изделий</h1>
+  <p id="sub">Нажмите, чтобы открыть окно выбора.</p>
+  <button id="open">Открыть выбор изделий</button>
+  <div class="hint" id="hint"></div>
+</div>
+
+<script>
+  // Приложение, которое открываем во всплывающем окне:
+  const APP = "products_demo.html";
+
+  // Параметры из URL:
+  //   task — номер задачи (пробрасывается в приложение)
+  //   w    — доля ширины экрана  (0..1), по умолчанию 0.5
+  //   h    — доля высоты экрана  (0..1), по умолчанию 1
+  // пример: open.html?task=28775&w=0.5&h=1
+  const params = new URLSearchParams(location.search);
+  const taskId = params.get("task") || "";
+  const clamp = (v, def) => { v = parseFloat(v); return (isFinite(v) && v > 0) ? Math.min(v, 1) : def; };
+  const wMul = clamp(params.get("w"), 0.5);
+  const hMul = clamp(params.get("h"), 1);
+
+  if (taskId) document.getElementById("sub").textContent =
+    "Задача №" + taskId + " — нажмите, чтобы открыть окно выбора.";
+
+  function openPopup(){
+    const W = Math.round(screen.availWidth  * wMul);
+    const H = Math.round(screen.availHeight * hMul);
+    const left = Math.max(0, Math.round((screen.availWidth  - W) / 2)); // по центру по горизонтали
+    const top  = Math.max(0, Math.round((screen.availHeight - H) / 2)); // по центру по вертикали (при h=1 → 0)
+    const features = `popup=yes,width=${W},height=${H},left=${left},top=${top},resizable=yes,scrollbars=yes`;
+
+    // уникальный параметр _ отключает кэш и заставляет переиспользуемое окно перезагрузиться свежей версией
+    const bust = (location.search ? "&" : "?") + "_=" + Date.now();
+    const win = window.open(APP + location.search + bust, "otgruzka_izdeliy", features);
+    const hint = document.getElementById("hint");
+
+    if (!win || win.closed || typeof win.closed === "undefined"){
+      // popup заблокирован — оставляем кнопку
+      hint.className = "hint err";
+      hint.textContent = "Браузер заблокировал всплывающее окно — разрешите popup для этого сайта и нажмите кнопку ещё раз.";
+      return;
+    }
+
+    win.focus();
+    // Пытаемся закрыть саму вкладку-лончер.
+    window.close();
+    // Если браузер не дал закрыть (вкладка не единственная в истории) — подсказка.
+    setTimeout(() => {
+      hint.className = "hint";
+      hint.textContent = "Окно открыто. Эту вкладку можно закрыть.";
+    }, 250);
+  }
+
+  document.getElementById("open").addEventListener("click", openPopup);
+
+  // Пытаемся открыть сразу; если popup-блокировщик не даст — останется кнопка.
+  window.addEventListener("load", () => { try { openPopup(); } catch(e){} });
+</script>
+</body>
+</html>
