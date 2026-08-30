@@ -1,0 +1,17 @@
+name = "whb-cross-section-load"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+[vars]
+PLANFIX_REST_BASE = "https://whb.planfix.ru/rest"
+DIR_TYPES_ID = "7084"
+DIR_SECTIONS_ID = "7082"
+FIELD_TYPE_NAME = "18730"
+FIELD_SECTION_NAME = "18718"
+FIELD_SECTION_FINISHED = "18780"
+FIELD_SECTION_GRADE = "18750"
+FIELD_SECTION_VID = "18806"
+OUTGOING_WEBHOOK_URL = "https://whb.planfix.ru/webhook/json/dt_working_drawings_items"
+
+# Секрет (не в vars, чтобы не светился в git/логах):
+#   npx wrangler secret put PLANFIX_TOKEN
