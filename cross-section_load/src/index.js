@@ -237,6 +237,35 @@ function pickField(body, aliases) {
   return null;
 }
 
+/* ====================== Нормализация fileUrl ====================== */
+// Planfix отдаёт файловое поле как JSON-массив ссылок (поле может хранить несколько файлов),
+// а при подстановке макроса в вебхук иногда percent-кодирует его целиком — приходит буквально
+// "%5B%22https%3A%2F%2F...%22%5D" (= ["https://..."] после одного decodeURIComponent).
+// Берём первый файл; если это уже готовый URL или нативный массив — тоже поддерживаем.
+function resolveFileUrl(raw) {
+  let s = raw;
+  if (Array.isArray(s)) s = s[0];
+  if (typeof s !== 'string') throw new Error('fileUrl: неподдерживаемый тип значения');
+  s = s.trim();
+  if (/%5B|%22|%5b/i.test(s)) {
+    try {
+      s = decodeURIComponent(s).trim();
+    } catch (e) {
+      // не percent-encoded (или сломано) — используем как есть
+    }
+  }
+  if (s.startsWith('[')) {
+    try {
+      const arr = JSON.parse(s);
+      if (Array.isArray(arr) && arr.length > 0) s = String(arr[0]);
+    } catch (e) {
+      // не валидный JSON-массив — считаем строку самим URL
+    }
+  }
+  if (s.startsWith('"') && s.endsWith('"')) s = s.slice(1, -1);
+  return s;
+}
+
 /* ====================== Скачивание файла ====================== */
 async function downloadFile(token, fileUrl) {
   // Сначала без авторизации (планфиксовые filelink-ссылки обычно уже содержат подписанный &auth=)
@@ -311,10 +340,17 @@ export default {
       );
     }
 
+    let resolvedFileUrl;
+    try {
+      resolvedFileUrl = resolveFileUrl(fileUrl);
+    } catch (e) {
+      return Response.json({ error: `fileUrl: ${e.message}`, receivedFileUrl: fileUrl }, { status: 400, headers: cors });
+    }
+
     try {
       const [{ TYPES, SECTIONS }, fileBuf] = await Promise.all([
         loadDirectories(env, apiKey),
-        downloadFile(apiKey, fileUrl),
+        downloadFile(apiKey, resolvedFileUrl),
       ]);
 
       const { matched } = await parseWorkbook(env, apiKey, fileBuf, TYPES, SECTIONS);
