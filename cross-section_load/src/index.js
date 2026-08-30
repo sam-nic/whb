@@ -2,20 +2,18 @@ import * as XLSX from 'xlsx';
 
 const APP_VERSION = '1.0.0';
 
-// Ключи в ответе Worker'а — каждый ключ отдаёт СВОЙ массив, значения выровнены по индексу
-// (i-й элемент type / section / quantity / unit / description — одна и та же строка заявки).
-// Planfix читает каждый ключ отдельным инфоблоком (JSONPath = имя ключа, «Все значения»)
-// и сопоставляет type/section по ТЕКСТУ названия записи справочника, не по id.
+// Ключи внутри каждого элемента items[] в ответе Worker'а.
+// Planfix сопоставляет type/section по ТЕКСТУ названия записи справочника, не по id.
 const FIELD_KEYS = {
   type: 'type',
   section: 'section',
   quantity: 'quantity',
-  unit: 'unit',
   description: 'description',
 };
 
 // Наименование в Excel -> точное «Название» записи в справочнике «Типы изделий» (7084).
-// null = соответствия нет — позиция пока пропускается (список несовпадений — отдельно, по инструкции).
+// null / отсутствие в этом словаре — не считается ошибкой: берётся имя из Excel как есть,
+// и если такой записи ещё нет в справочнике, она создаётся автоматически (см. ensureTypeExists).
 const TYPE_MAP = {
   'Подкладной брус': 'Подкладной брус',
   'Стеновые элементы': 'Балка стеновая',
@@ -107,6 +105,41 @@ async function loadDirectories(env, token) {
   return { TYPES, SECTIONS };
 }
 
+/* ====================== Автосоздание отсутствующих типов изделий (7084) ====================== */
+// Только для справочника «Типы изделий» — по просьбе пользователя. Сечения (7082) НЕ создаём
+// автоматически: там неоднозначность по «Виду» (Цельный/Комбинированный/Пустотелый), это
+// требует ручного решения, а не угадывания.
+async function createTypeEntry(env, token, name) {
+  const r = await fetch(`${env.PLANFIX_REST_BASE}/directory/${env.DIR_TYPES_ID}/entry/`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customFieldData: [
+        { field: { id: Number(env.FIELD_TYPE_NAME) }, value: name },
+        // «Бухгалтерское название» помечено обязательным в схеме поля, но фактически у
+        // большинства существующих записей пусто ({id:0}) — так и создаём.
+        { field: { id: Number(env.FIELD_TYPE_ACCOUNTING_NAME) }, value: { id: 0 } },
+      ],
+    }),
+  });
+  const j = await r.json();
+  if (j.result !== 'success') {
+    throw new Error(`Не удалось создать тип «${name}» в справочнике 7084: ${j.error || JSON.stringify(j)}`);
+  }
+  return { key: j.key, name };
+}
+
+// Возвращает {key, name} существующего или только что созданного типа. Мутирует TYPES —
+// в рамках одного вызова Worker'а несколько строк с одинаковым отсутствующим именем не
+// создадут дублей в справочнике (второй раз найдётся уже в TYPES).
+async function ensureTypeExists(env, token, TYPES, name) {
+  const existing = TYPES.find((t) => t.name === name);
+  if (existing) return existing;
+  const created = await createTypeEntry(env, token, name);
+  TYPES.push(created);
+  return created;
+}
+
 /* ====================== Сопоставление сечения ====================== */
 function parsePair(str) {
   const nums = String(str || '').match(/\d+/g);
@@ -133,7 +166,7 @@ function matchSection(SECTIONS, a, b, sortDigit) {
 }
 
 /* ====================== Разбор листа «Заявка» ====================== */
-function parseWorkbook(arrayBuffer, TYPES_UNUSED, SECTIONS) {
+async function parseWorkbook(env, token, arrayBuffer, TYPES, SECTIONS) {
   const wb = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
   const sheetName =
     wb.SheetNames.find((n) => n.trim().toLowerCase() === 'заявка') ||
@@ -158,13 +191,17 @@ function parseWorkbook(arrayBuffer, TYPES_UNUSED, SECTIONS) {
     if (numA === null || numB === null || numSort === null) continue; // не похоже на позицию с сечением
     if (!qty) continue; // нулевое количество — нечего заказывать
 
-    const typeName = TYPE_MAP[nameStr] !== undefined ? TYPE_MAP[nameStr] : null;
+    // Если для этого имени нет явного соответствия в TYPE_MAP (или там null) — берём имя как
+    // есть из Excel и, если такого типа ещё нет в справочнике 7084, создаём его (по просьбе
+    // пользователя — автосоздание только для типов, не для сечений).
+    const desiredTypeName = TYPE_MAP[nameStr] || nameStr;
+    const typeEntry = await ensureTypeExists(env, token, TYPES, desiredTypeName);
     const secEntry = matchSection(SECTIONS, numA, numB, numSort);
 
-    if (!typeName || !secEntry) {
-      skipped.push(
-        `${nameStr} ${numA}×${numB} ${numSort}с${!typeName ? ' — нет типа' : ''}${!secEntry ? ' — нет сечения' : ''}`
-      );
+    if (!secEntry) {
+      // Тип теперь всегда находится (создаётся при отсутствии) — не находится только сечение:
+      // либо такого типоразмера+сорта нет в справочнике 7082, либо неоднозначность по «Виду».
+      skipped.push(`${nameStr} ${numA}×${numB} ${numSort}с — нет сечения`);
       continue;
     }
 
@@ -178,7 +215,7 @@ function parseWorkbook(arrayBuffer, TYPES_UNUSED, SECTIONS) {
     if (typeof area === 'number' && area > 0) descParts.push(`Площадь покраски: ${area} ${areaUnit}`.trim());
 
     matched.push({
-      type: typeName,
+      type: typeEntry.name,
       'cross-section': secEntry.name,
       quantity: Math.round(qty * 1000) / 1000,
       unit: unit || '',
@@ -207,17 +244,15 @@ async function downloadFile(token, fileUrl) {
   return r.arrayBuffer();
 }
 
-/* ====================== Формирование параллельных массивов для аналитики ====================== */
+/* ====================== Формирование items[] для аналитики ====================== */
 // taskNo не возвращаем — Planfix и так знает текущую задачу (это её же вебхук).
-// Каждое поле — отдельный массив, i-й элемент во всех массивах относится к одной строке заявки.
-function buildColumns(matched) {
-  return {
-    [FIELD_KEYS.type]: matched.map((it) => it.type),
-    [FIELD_KEYS.section]: matched.map((it) => it['cross-section']),
-    [FIELD_KEYS.quantity]: matched.map((it) => it.quantity),
-    [FIELD_KEYS.unit]: matched.map((it) => it.unit),
-    [FIELD_KEYS.description]: matched.map((it) => it.description),
-  };
+function buildItems(matched) {
+  return matched.map((it) => ({
+    [FIELD_KEYS.type]: it.type,
+    [FIELD_KEYS.section]: it['cross-section'],
+    [FIELD_KEYS.quantity]: it.quantity,
+    [FIELD_KEYS.description]: it.description,
+  }));
 }
 
 /* ====================== Worker ====================== */
@@ -278,18 +313,9 @@ export default {
         downloadFile(apiKey, fileUrl),
       ]);
 
-      const { matched, skipped } = parseWorkbook(fileBuf, TYPES, SECTIONS);
+      const { matched } = await parseWorkbook(env, apiKey, fileBuf, TYPES, SECTIONS);
 
-      return Response.json(
-        {
-          ok: matched.length > 0,
-          matchedCount: matched.length,
-          skippedCount: skipped.length,
-          skipped,
-          ...buildColumns(matched),
-        },
-        { status: 200, headers: cors }
-      );
+      return Response.json({ items: buildItems(matched) }, { status: 200, headers: cors });
     } catch (e) {
       return Response.json({ ok: false, error: e.message, stack: e.stack }, { status: 500, headers: cors });
     }
