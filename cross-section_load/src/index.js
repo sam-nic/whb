@@ -214,13 +214,12 @@ async function parseWorkbook(env, token, arrayBuffer, TYPES, SECTIONS) {
     // пользователя — автосоздание только для типов, не для сечений).
     const desiredTypeName = TYPE_MAP[nameStr] || nameStr;
     const typeEntry = await ensureTypeExists(env, token, TYPES, desiredTypeName);
+    // Сечение НЕ создаём автоматически (неоднозначность по «Виду» — Цельный/Комбинированный/
+    // Пустотелый). Если для типоразмера+сорта в 7082 ничего не нашлось — позицию всё равно
+    // отдаём, просто с пустым section (по просьбе пользователя), а не пропускаем целиком.
     const secEntry = matchSection(SECTIONS, numA, numB, numSort);
-
     if (!secEntry) {
-      // Тип теперь всегда находится (создаётся при отсутствии) — не находится только сечение:
-      // либо такого типоразмера+сорта нет в справочнике 7082, либо неоднозначность по «Виду».
-      skipped.push(`${nameStr} ${numA}×${numB} ${numSort}с — нет сечения`);
-      continue;
+      skipped.push(`${nameStr} ${numA}×${numB} ${numSort}с — нет сечения, отдано с пустым section`);
     }
 
     const color = row[9] || '';
@@ -234,7 +233,7 @@ async function parseWorkbook(env, token, arrayBuffer, TYPES, SECTIONS) {
 
     matched.push({
       type: typeEntry.name,
-      'cross-section': secEntry.name,
+      'cross-section': secEntry ? secEntry.name : '',
       quantity: Math.round(qty * 1000) / 1000,
       unit: unit || '',
       description: descParts.join('; '),
