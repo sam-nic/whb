@@ -2,12 +2,13 @@ import * as XLSX from 'xlsx';
 
 const APP_VERSION = '1.0.0';
 
-// Ключи JSON, которые ждёт исходящий вебхук Planfix (dt_working_drawings_items).
-// Он сопоставляет type/cross-section по ТЕКСТУ названия записи справочника, не по id.
+// Ключи в ответе Worker'а — каждый ключ отдаёт СВОЙ массив, значения выровнены по индексу
+// (i-й элемент type / section / quantity / unit / description — одна и та же строка заявки).
+// Planfix читает каждый ключ отдельным инфоблоком (JSONPath = имя ключа, «Все значения»)
+// и сопоставляет type/section по ТЕКСТУ названия записи справочника, не по id.
 const FIELD_KEYS = {
-  taskNo: 'taskNo',
   type: 'type',
-  section: 'cross-section',
+  section: 'section',
   quantity: 'quantity',
   unit: 'unit',
   description: 'description',
@@ -206,23 +207,17 @@ async function downloadFile(token, fileUrl) {
   return r.arrayBuffer();
 }
 
-/* ====================== Отправка результата ====================== */
-async function sendToWebhook(callbackUrl, taskNo, items) {
-  const payload = items.map((it) => ({
-    [FIELD_KEYS.taskNo]: /^\d+$/.test(String(taskNo)) ? parseInt(taskNo, 10) : taskNo,
-    [FIELD_KEYS.type]: it.type,
-    [FIELD_KEYS.section]: it['cross-section'],
-    [FIELD_KEYS.quantity]: it.quantity,
-    [FIELD_KEYS.unit]: it.unit,
-    [FIELD_KEYS.description]: it.description,
-  }));
-  const r = await fetch(`${callbackUrl}?taskNo=${encodeURIComponent(taskNo)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const text = await r.text();
-  return { ok: r.ok, status: r.status, text, payload };
+/* ====================== Формирование параллельных массивов для аналитики ====================== */
+// taskNo не возвращаем — Planfix и так знает текущую задачу (это её же вебхук).
+// Каждое поле — отдельный массив, i-й элемент во всех массивах относится к одной строке заявки.
+function buildColumns(matched) {
+  return {
+    [FIELD_KEYS.type]: matched.map((it) => it.type),
+    [FIELD_KEYS.section]: matched.map((it) => it['cross-section']),
+    [FIELD_KEYS.quantity]: matched.map((it) => it.quantity),
+    [FIELD_KEYS.unit]: matched.map((it) => it.unit),
+    [FIELD_KEYS.description]: matched.map((it) => it.description),
+  };
 }
 
 /* ====================== Worker ====================== */
@@ -251,23 +246,21 @@ export default {
       return Response.json({ error: 'invalid JSON body' }, { status: 400, headers: cors });
     }
 
-    const taskNo = pickField(body, ['taskno', 'task', 'tasknumber', 'номерзадачи']);
     const fileUrl = pickField(body, ['fileurl', 'url', 'file', 'link', 'filelink']);
-    // apiKey — ключ к доп. параметрам (сейчас это Bearer-токен Planfix REST для чтения справочников
-    // и скачивания файла); callback — куда слать результат вместо статического OUTGOING_WEBHOOK_URL.
-    // Оба можно не передавать — тогда используются значения из env (секрет/wrangler.toml), для
-    // локальной разработки и обратной совместимости.
+    // apiKey — ключ к доп. параметрам (Bearer-токен Planfix REST для чтения справочников
+    // и скачивания файла). Можно не передавать — тогда используется env.PLANFIX_TOKEN
+    // (секрет), для локальной разработки и обратной совместимости.
+    // taskNo не используется — Planfix и так знает текущую задачу, это её же вебхук.
+    // Обратного вебхука/callback нет — результат отдаётся прямо в ответе на этот запрос
+    // (обработка достаточно быстрая, чтобы Planfix мог тут же разобрать ответ и добавить аналитику).
     const apiKey = pickField(body, ['apikey', 'key', 'token', 'planfixtoken']) || env.PLANFIX_TOKEN;
-    const callbackUrl =
-      pickField(body, ['callback', 'callbackurl', 'webhook', 'webhookurl', 'resulturl']) ||
-      env.OUTGOING_WEBHOOK_URL;
 
-    if (!taskNo || !fileUrl) {
+    if (!fileUrl) {
       return Response.json(
         {
-          error: 'нужны taskNo и fileUrl во входящем JSON',
+          error: 'нужен fileUrl во входящем JSON',
           receivedKeys: Object.keys(body || {}),
-          hint: 'поддерживаются алиасы: taskNo/task/taskNumber; fileUrl/url/file/link/fileLink; apiKey/key/token; callback/callbackUrl/webhook',
+          hint: 'поддерживаются алиасы: fileUrl/url/file/link/fileLink; apiKey/key/token',
         },
         { status: 400, headers: cors }
       );
@@ -275,12 +268,6 @@ export default {
     if (!apiKey) {
       return Response.json(
         { error: 'нет apiKey — ни во входящем JSON, ни в env.PLANFIX_TOKEN' },
-        { status: 400, headers: cors }
-      );
-    }
-    if (!callbackUrl) {
-      return Response.json(
-        { error: 'нет callback — ни во входящем JSON, ни в env.OUTGOING_WEBHOOK_URL' },
         { status: 400, headers: cors }
       );
     }
@@ -293,26 +280,15 @@ export default {
 
       const { matched, skipped } = parseWorkbook(fileBuf, TYPES, SECTIONS);
 
-      if (matched.length === 0) {
-        return Response.json(
-          { ok: false, error: 'не найдено ни одной распознанной позиции', taskNo, skipped },
-          { status: 200, headers: cors }
-        );
-      }
-
-      const sendResult = await sendToWebhook(callbackUrl, taskNo, matched);
-
       return Response.json(
         {
-          ok: sendResult.ok,
-          taskNo,
+          ok: matched.length > 0,
           matchedCount: matched.length,
           skippedCount: skipped.length,
           skipped,
-          webhookStatus: sendResult.status,
-          webhookResponse: sendResult.text,
+          ...buildColumns(matched),
         },
-        { status: sendResult.ok ? 200 : 502, headers: cors }
+        { status: 200, headers: cors }
       );
     } catch (e) {
       return Response.json({ ok: false, error: e.message, stack: e.stack }, { status: 500, headers: cors });
