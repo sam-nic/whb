@@ -51,14 +51,14 @@ const TYPE_MAP = {
 };
 
 /* ====================== Planfix REST ====================== */
-async function fetchAllEntries(env, dirId, fields) {
+async function fetchAllEntries(env, token, dirId, fields) {
   let offset = 0;
   const out = [];
   while (true) {
     const r = await fetch(`${env.PLANFIX_REST_BASE}/directory/${dirId}/entry/list`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${env.PLANFIX_TOKEN}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ offset, pageSize: 100, fields }),
@@ -85,11 +85,12 @@ function simplify(entries) {
   });
 }
 
-async function loadDirectories(env) {
+async function loadDirectories(env, token) {
   const [typesRaw, secRaw] = await Promise.all([
-    fetchAllEntries(env, env.DIR_TYPES_ID, `key,${env.FIELD_TYPE_NAME}`),
+    fetchAllEntries(env, token, env.DIR_TYPES_ID, `key,${env.FIELD_TYPE_NAME}`),
     fetchAllEntries(
       env,
+      token,
       env.DIR_SECTIONS_ID,
       `key,${env.FIELD_SECTION_NAME},${env.FIELD_SECTION_FINISHED},${env.FIELD_SECTION_GRADE},${env.FIELD_SECTION_VID}`
     ),
@@ -195,18 +196,18 @@ function pickField(body, aliases) {
 }
 
 /* ====================== Скачивание файла ====================== */
-async function downloadFile(env, fileUrl) {
+async function downloadFile(token, fileUrl) {
   // Сначала без авторизации (планфиксовые filelink-ссылки обычно уже содержат подписанный &auth=)
   let r = await fetch(fileUrl);
-  if (r.status === 401 || r.status === 403) {
-    r = await fetch(fileUrl, { headers: { Authorization: `Bearer ${env.PLANFIX_TOKEN}` } });
+  if ((r.status === 401 || r.status === 403) && token) {
+    r = await fetch(fileUrl, { headers: { Authorization: `Bearer ${token}` } });
   }
   if (!r.ok) throw new Error(`Не удалось скачать файл (HTTP ${r.status}) c ${fileUrl}`);
   return r.arrayBuffer();
 }
 
 /* ====================== Отправка результата ====================== */
-async function sendToWebhook(env, taskNo, items) {
+async function sendToWebhook(callbackUrl, taskNo, items) {
   const payload = items.map((it) => ({
     [FIELD_KEYS.taskNo]: /^\d+$/.test(String(taskNo)) ? parseInt(taskNo, 10) : taskNo,
     [FIELD_KEYS.type]: it.type,
@@ -215,7 +216,7 @@ async function sendToWebhook(env, taskNo, items) {
     [FIELD_KEYS.unit]: it.unit,
     [FIELD_KEYS.description]: it.description,
   }));
-  const r = await fetch(`${env.OUTGOING_WEBHOOK_URL}?taskNo=${encodeURIComponent(taskNo)}`, {
+  const r = await fetch(`${callbackUrl}?taskNo=${encodeURIComponent(taskNo)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -252,22 +253,42 @@ export default {
 
     const taskNo = pickField(body, ['taskno', 'task', 'tasknumber', 'номерзадачи']);
     const fileUrl = pickField(body, ['fileurl', 'url', 'file', 'link', 'filelink']);
+    // apiKey — ключ к доп. параметрам (сейчас это Bearer-токен Planfix REST для чтения справочников
+    // и скачивания файла); callback — куда слать результат вместо статического OUTGOING_WEBHOOK_URL.
+    // Оба можно не передавать — тогда используются значения из env (секрет/wrangler.toml), для
+    // локальной разработки и обратной совместимости.
+    const apiKey = pickField(body, ['apikey', 'key', 'token', 'planfixtoken']) || env.PLANFIX_TOKEN;
+    const callbackUrl =
+      pickField(body, ['callback', 'callbackurl', 'webhook', 'webhookurl', 'resulturl']) ||
+      env.OUTGOING_WEBHOOK_URL;
 
     if (!taskNo || !fileUrl) {
       return Response.json(
         {
           error: 'нужны taskNo и fileUrl во входящем JSON',
           receivedKeys: Object.keys(body || {}),
-          hint: 'поддерживаются алиасы: taskNo/task/taskNumber; fileUrl/url/file/link/fileLink',
+          hint: 'поддерживаются алиасы: taskNo/task/taskNumber; fileUrl/url/file/link/fileLink; apiKey/key/token; callback/callbackUrl/webhook',
         },
+        { status: 400, headers: cors }
+      );
+    }
+    if (!apiKey) {
+      return Response.json(
+        { error: 'нет apiKey — ни во входящем JSON, ни в env.PLANFIX_TOKEN' },
+        { status: 400, headers: cors }
+      );
+    }
+    if (!callbackUrl) {
+      return Response.json(
+        { error: 'нет callback — ни во входящем JSON, ни в env.OUTGOING_WEBHOOK_URL' },
         { status: 400, headers: cors }
       );
     }
 
     try {
       const [{ TYPES, SECTIONS }, fileBuf] = await Promise.all([
-        loadDirectories(env),
-        downloadFile(env, fileUrl),
+        loadDirectories(env, apiKey),
+        downloadFile(apiKey, fileUrl),
       ]);
 
       const { matched, skipped } = parseWorkbook(fileBuf, TYPES, SECTIONS);
@@ -279,7 +300,7 @@ export default {
         );
       }
 
-      const sendResult = await sendToWebhook(env, taskNo, matched);
+      const sendResult = await sendToWebhook(callbackUrl, taskNo, matched);
 
       return Response.json(
         {

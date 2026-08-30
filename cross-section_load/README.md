@@ -39,13 +39,29 @@ npm run deploy
 ## Вход (POST /)
 
 ```json
-{ "taskNo": 12345, "fileUrl": "https://whb.planfix.ru/filelink/...&auth=..." }
+{
+  "taskNo": 12345,
+  "fileUrl": "https://whb.planfix.ru/filelink/...&auth=...",
+  "apiKey": "...",
+  "callback": "https://whb.planfix.ru/webhook/json/dt_working_drawings_items"
+}
 ```
 
-Алиасы ключей: `taskNo`/`task`/`taskNumber`; `fileUrl`/`url`/`file`/`link`/`fileLink`
-(сопоставление регистронезависимое). Файл сначала скачивается без авторизации
-(planfix filelink обычно уже содержит подписанный `&auth=`), при 401/403 — повторно
-с заголовком `Authorization: Bearer <PLANFIX_TOKEN>`.
+Алиасы ключей (сопоставление регистронезависимое):
+- `taskNo` / `task` / `taskNumber`
+- `fileUrl` / `url` / `file` / `link` / `fileLink`
+- `apiKey` / `key` / `token` / `planfixToken` — Bearer-токен Planfix REST, используется и для
+  чтения справочников 7084/7082, и (при 401/403) для скачивания файла
+- `callback` / `callbackUrl` / `webhook` / `webhookUrl` / `resultUrl` — куда слать результат
+  (аналог `dt_working_drawings_items`, но можно указывать любой другой на каждый вызов)
+
+`apiKey`/`callback` необязательны в запросе — если не переданы, берутся значения по умолчанию
+из `env.PLANFIX_TOKEN` (секрет) / `env.OUTGOING_WEBHOOK_URL` (`wrangler.toml`). Это только для
+локальной разработки и обратной совместимости — в проде ожидается, что Planfix передаёт их
+в каждом вызове (см. паттерн «секреты в теле запроса» — сервис stateless).
+
+Файл скачивается сначала без авторизации (planfix filelink обычно уже содержит подписанный
+`&auth=`), при 401/403 — повторно с заголовком `Authorization: Bearer <apiKey>`.
 
 ## Выход
 
@@ -63,7 +79,7 @@ npm run deploy
 }
 ```
 
-И параллельно шлёт сам результат на `dt_working_drawings_items?taskNo=...` —
+И параллельно шлёт сам результат на `callback?taskNo=...` —
 JSON-массив объектов `{taskNo, type, "cross-section", quantity, unit, description}`,
 где `type`/`cross-section` — точные текстовые названия записей справочников
 (вебхук сопоставляет по названию, не по id).
