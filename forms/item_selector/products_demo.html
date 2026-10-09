@@ -39,7 +39,8 @@
   .badge{font-size:11px; padding:2px 8px; border-radius:20px; background:var(--chip); color:var(--muted); font-weight:600}
   .badge.live{background:var(--okbg); color:var(--ok)}
   .badge.demo{background:#fff4e0; color:#b9770a}
-  @media (prefers-color-scheme: dark){ .badge.demo{background:#2b2410; color:#e6b84d} }
+  .badge.src{background:#eef0ff; color:#5b57d6}
+  @media (prefers-color-scheme: dark){ .badge.demo{background:#2b2410; color:#e6b84d} .badge.src{background:#221f3d; color:#a9a4ff} }
   .head-row{display:flex; gap:44px; align-items:center; flex-wrap:wrap}
   .titlebox{flex:0 0 auto}
   .ms{display:flex; flex-direction:column; gap:3px; flex:1 1 240px; min-width:0; position:relative}
@@ -69,6 +70,7 @@
   .link.danger{color:var(--err)}
   .count{font-size:13px; color:var(--muted); margin-left:auto; text-align:right}
   .count b{color:var(--ink); font-variant-numeric:tabular-nums}
+  .toolbar .hint{font-size:12px; color:var(--muted); opacity:.8}
   .colhead{display:flex; align-items:center; gap:12px; padding:2px 22px 4px; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.02em}
   .colhead .sp{flex:1 1 auto}
   .colhead .h-sklad{flex:none; width:70px; text-align:right}
@@ -85,7 +87,7 @@
   li.row .ship{flex:none; width:104px}
   li.row .ship input{width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:8px;
     background:var(--field); color:var(--ink); font-size:14px; text-align:right; font-variant-numeric:tabular-nums}
-  li.row .ship input::-webkit-inner-spin-button{margin-left:6px}   /* зазор между цифрой и стрелками */
+  li.row .ship input::-webkit-inner-spin-button{margin-left:6px}
   li.row .ship input.bad{border-color:var(--err); color:var(--err); background:var(--errbg)}
   li.group{display:flex; justify-content:space-between; align-items:center; gap:10px;
     padding:10px 12px; margin:10px 0 2px; cursor:pointer; border-radius:8px;
@@ -105,6 +107,9 @@
   .msg{padding:12px 14px; border-radius:10px; margin:0 20px 16px; font-size:13px; display:none}
   .msg.ok{display:block; background:var(--okbg); color:var(--ok)}
   .msg.err{display:block; background:var(--errbg); color:var(--err)}
+  .msg.warn{display:block; background:#fff4e0; color:#b9770a}
+  @media (prefers-color-scheme: dark){ .msg.warn{background:#2b2410; color:#e6b84d} }
+  .perf{padding:4px 20px 0; font-size:11px; color:var(--muted)}
   .done{text-align:center; padding:40px 24px}
   .done .ic{font-size:44px}
   .done h2{margin:12px 0 6px; font-size:20px}
@@ -120,6 +125,7 @@
         <div class="sub">
           <span id="taskLabel">Задача: —</span>
           <span class="badge" id="modeBadge">…</span>
+          <span class="badge src" id="verBadge"></span>
         </div>
       </div>
       <div class="ms" id="msDeal" style="display:none">
@@ -135,17 +141,19 @@
   <div class="toolbar" id="toolbar" style="display:none">
     <button class="link" id="toggleAll">Выбрать все</button>
     <button class="link danger" id="clearAll" style="display:none">Очистить все</button>
+    <span class="hint">Shift — выбрать диапазон</span>
     <span class="count" id="counter">Выбрано: 0</span>
   </div>
 
   <div class="colhead" id="colhead" style="display:none">
     <span class="sp"></span>
-    <span class="h-sklad">На складе</span>
+    <span class="h-sklad">Доступно</span>
     <span class="h-ship">Отгружаем</span>
   </div>
 
   <ul class="list" id="list"></ul>
   <div class="state" id="state">Загрузка изделий…</div>
+  <div class="perf" id="perf"></div>
 
   <div class="msg" id="msg"></div>
 
@@ -158,19 +166,29 @@
 /* ============================================================
    НАСТРОЙКИ
    ============================================================ */
+const APP_VERSION = "2.0.0 · 09.10.2026";
+
 const CONFIG = {
   BASE:  "https://whb.planfix.ru/rest",
-  TOKEN: "b26ef8c845d7a959e8c1149aa7f9a1ad",   // whb: read-only + комментарии
-  LIVE:  true,                                  // false = демо, в Planfix не пишет
 
-  DIRECTORY_ID: 7090,   // справочник "Доступные к перемещению изделия"
-  DATATAG_ID:   4040,   // аналитика "Отгружаемые изделия"
+  // тикет об ошибке — как задача «Тикет себе» (#23): проект «Внедрение Planfix WHB», группа «Planfix интегратор»
+  TICKET_PROJECT_ID: 18,
+  TICKET_GROUP_ID:   17674,
+  TOKEN: "b26ef8c845d7a959e8c1149aa7f9a1ad",
 
-  // поля справочника 7090:
-  F_NAME: 18752, F_QTY: 18756, F_DEAL: 18898, F_STORE: 18894,
-  // поля аналитики 4040:
-  DT_ITEM: 17828,   // Изделие  (ссылка на запись справочника 7090)
-  DT_SHIPPED: 17832 // Отгружено (число)
+  MOVE_DATATAG_ID: 4054,   // аналитика "Движение"
+  // поля аналитики 4054:
+  F_MESTO: 18012,   // Место (Directory entry, справочник 7116)
+  F_POST:  18014,   // Поступило (Number)
+  F_BRON:  18008,   // Бронь (Number)
+  F_DEAL:  18006,   // Сделка (Task)
+
+  STORE_DIRECTORY_ID: 7116,   // справочник "Места хранений" — только для резолва названия места в id
+
+  WRITE_DATATAG_ID: 4040,   // аналитика "Отгружаемые изделия" (записываем сюда по «Готово»)
+  DT_ITEM_TASK: 18098,      // "Изделие (задача)" — Task-поле, пишем id задачи-изделия напрямую (справочник 7090 не нужен)
+  DT_SHIPPED:   17832,      // "Отгружено" (Number)
+  DT_DEAL:      18100       // "Сделка" — Task-поле, пишем id сделки; для строк «Без сделки» не заполняем
 };
 
 /* ============================================================
@@ -179,12 +197,13 @@ const CONFIG = {
 const $ = id => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
 const taskId = qs.get("task") || qs.get("taskId") || qs.get("id") || "";
-const forcedStore = qs.get("store") || "";   // id "Места хранения" (справочник 7116) — жёсткий фильтр списка
+const forcedStore = qs.get("store") || "";   // id ИЛИ название места хранения — обязателен для этого источника
 
 $("taskLabel").textContent = taskId ? ("Задача №" + taskId) : "Задача не указана в URL";
-const liveReady = CONFIG.LIVE && CONFIG.TOKEN && taskId;
+const liveReady = !!(CONFIG.TOKEN && taskId);
 $("modeBadge").textContent = liveReady ? "LIVE" : "ДЕМО";
 $("modeBadge").className = "badge " + (liveReady ? "live" : "demo");
+$("verBadge").textContent = "v" + APP_VERSION;
 
 const api = (path, body) => fetch(CONFIG.BASE + path, {
   method: "POST",
@@ -194,16 +213,34 @@ const api = (path, body) => fetch(CONFIG.BASE + path, {
 const apiGET = (path) => fetch(CONFIG.BASE + path, {
   headers: { "Authorization": "Bearer " + CONFIG.TOKEN }
 }).then(r => r.json());
-const apiDELETE = (path) => fetch(CONFIG.BASE + path, {
-  method: "DELETE", headers: { "Authorization": "Bearer " + CONFIG.TOKEN }
-}).then(r => r.json().catch(() => ({})));
 
 const cf = (entry, fid) => (entry.customFieldData.find(c => c.field.id === fid) || {});
-// убрать префикс "[ДД361] " (номер сделки) из названия изделия
-const stripPrefix = s => String(s || "").replace(/^\s*\[[^\]]*\]\s*/, "");
-// «Отгружаем» валиден: число, > 0 и ≤ «На складе»
 const shipValid = x => Number.isFinite(x._ship) && x._ship > 0 && x._ship <= x.qty;
 const esc = s => String(s == null ? "" : s).replace(/[<>&]/g, c => ({ "<":"&lt;", ">":"&gt;", "&":"&amp;" }[c]));
+// "Доска пола 23х185х3000 0с Черн. → 6 бр. + 2 св. = 8 шт." -> "Доска пола 23х185х3000 0с Черн."
+const cleanName = s => String(s || "").split("→")[0].trim();
+
+// Ошибка -> тикет по образцу «Тикет себе». Сбой самого тикета не должен маскировать исходную ошибку.
+async function reportError(where, err){
+  try{
+    const d = new Date(), p = n => String(n).padStart(2, "0");
+    const stamp = `${p(d.getDate())}.${p(d.getMonth()+1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+    const taskUrl = taskId ? "https://whb.planfix.ru/task/" + taskId : "";
+    const description =
+      "<b>Log ошибок</b><br>" +
+      (taskUrl ? `Задача: <a href="${taskUrl}">${taskUrl}</a><br>` : "Задача: не указана в URL<br>") +
+      "Где: " + esc(where) + "<br>" +
+      "Ошибка: " + esc(err && err.message ? err.message : String(err)) + "<br>" +
+      "Версия: " + esc(APP_VERSION) + "<br>" +
+      "URL формы: " + esc(location.href);
+    await api("/task/", {
+      name: "Ошибка отбора " + stamp,
+      description,
+      project:   { id: CONFIG.TICKET_PROJECT_ID },
+      assignees: { groups: [{ id: CONFIG.TICKET_GROUP_ID }] }
+    });
+  }catch(e){ console.warn("reportError failed", e); }
+}
 
 // разбор имени задачи-перемещения: "Перемещение 98 Цех 2 → Цех 4 | 26-06-2026"
 function parseMove(name){
@@ -214,64 +251,129 @@ function parseMove(name){
   const a = route.split(/→|->|—›|›/);
   return { num: m ? m[1] : "", from: (a[0] || "").trim(), to: (a[1] || "").trim() };
 }
-// заголовок из имени задачи: «Перемещение №98 / из Цех 2 в Цех 4» (номер и цеха — жирным)
 function setHeader(name){
   const p = parseMove(name);
-  if (!p.num && !p.from && !p.to) return;   // не перемещение — оставляем как есть
+  if (!p.num && !p.from && !p.to) return;
   if (p.num) document.querySelector("header h1").innerHTML = "Перемещение №<b>" + esc(p.num) + "</b>";
   if (p.from || p.to) $("taskLabel").innerHTML = "из <b>" + esc(p.from) + "</b> в <b>" + esc(p.to) + "</b>";
 }
 
-let ITEMS = [];                // { key, name, qty, _ship, _sel, dealId, dealName, storeId, storeName }
-let existingEntryKeys = [];    // ключи уже добавленных на задачу записей 4040 (для затирания)
+let ITEMS = [];              // { key, taskId, name, qty, _ship, _sel, dealId, dealName }
+let existingEntryKeys = [];  // ключи уже добавленных на задачу записей 4040 (для затирания по «Готово»)
 
-async function loadAll(){
-  const out = [];
-  for (let offset = 0; offset < 2000; offset += 100){
-    const d = await api(`/directory/${CONFIG.DIRECTORY_ID}/entry/list`, {
-      offset, pageSize: 100,
-      fields: `key,${CONFIG.F_NAME},${CONFIG.F_QTY},${CONFIG.F_DEAL},${CONFIG.F_STORE}`
-    });
-    if (d.result !== "success") throw new Error(d.error || "ошибка чтения справочника");
-    const rows = d.directoryEntries || [];
-    out.push(...rows);
-    if (rows.length < 100) break;
-  }
-  return out.map(e => {
-    const deal  = cf(e, CONFIG.F_DEAL).value  || null;
-    const store = cf(e, CONFIG.F_STORE).value || null;
-    const qty   = Number(cf(e, CONFIG.F_QTY).value || 0);
-    return {
-      key: e.key,
-      name: cf(e, CONFIG.F_NAME).value || "(без названия)",
-      qty,
-      _ship: qty,          // «Отгружаем» по умолчанию = «На складе»
-      dealId:   deal ? deal.id : "",   dealName:  deal ? deal.name  : "—",
-      storeId:  store ? store.id : "", storeName: store ? store.value : "—"
-    };
-  }).filter(x => x.qty > 0);   // только доступные (кол-во > 0); архивные API не отдаёт
-}
-
-// уже добавленная на задачу аналитика 4040 → пред-отметка изделий и значения «Отгружаем»
-async function loadExisting(){
-  if (!liveReady) return;
+// уже добавленная на задачу аналитика 4040 → пред-отметка изделий и значения «Отгружаем».
+// Матчим по taskId напрямую через поле 18098 (Task) — справочник 7090 для этого не нужен.
+async function loadExistingRaw(){
+  if (!liveReady) return { taskName: "", rows: [] };
   const d = await apiGET(`/task/${encodeURIComponent(taskId)}?fields=id,name,dataTags`);
-  setHeader((d.task || {}).name);   // заголовок из имени задачи-перемещения
-  const rows = (((d.task || {}).dataTags) || [])
-    .filter(r => (r.dataTag || {}).id === CONFIG.DATATAG_ID && r.key);
-  existingEntryKeys = rows.map(r => r.key);
-  for (const r of rows){
-    const e = await apiGET(`/datatag/entry/${r.key}?fields=${CONFIG.DT_ITEM},${CONFIG.DT_SHIPPED}`);
-    const fields  = ((e.entry || {}).customFieldData) || [];
-    const itemVal = (fields.find(c => c.field.id === CONFIG.DT_ITEM)    || {}).value; // {id: ключ 7090}
-    const shipVal = (fields.find(c => c.field.id === CONFIG.DT_SHIPPED) || {}).value;
-    const it = itemVal ? ITEMS.find(x => x.key === itemVal.id) : null;
-    if (it){ it._sel = true; if (shipVal != null) it._ship = Number(shipVal); }
-  }
+  const dtRows = (((d.task || {}).dataTags) || [])
+    .filter(r => (r.dataTag || {}).id === CONFIG.WRITE_DATATAG_ID && r.key);
+  existingEntryKeys = dtRows.map(r => r.key);
+  const entries = await Promise.all(dtRows.map(r =>
+    apiGET(`/datatag/entry/${r.key}?fields=${CONFIG.DT_ITEM_TASK},${CONFIG.DT_SHIPPED},${CONFIG.DT_DEAL}`)
+  ));
+  const rows = [];   // { taskId, dealId ("none" если пусто), ship }
+  entries.forEach(e => {
+    const fields = ((e.entry || {}).customFieldData) || [];
+    const taskVal = (fields.find(c => c.field.id === CONFIG.DT_ITEM_TASK) || {}).value;
+    const dealVal = (fields.find(c => c.field.id === CONFIG.DT_DEAL)      || {}).value;
+    const shipVal = (fields.find(c => c.field.id === CONFIG.DT_SHIPPED)   || {}).value;
+    if (!taskVal || !taskVal.id) return;
+    rows.push({ taskId: taskVal.id, dealId: dealVal && dealVal.id ? String(dealVal.id) : "none", ship: Number(shipVal || 0) });
+  });
+  return { taskName: (d.task || {}).name, rows };
 }
 
-/* ---- фильтр по сделкам (мультивыбор) ---- */
-const FSEL = new Set();          // выбранные dealId (пусто = «Все»)
+// ?store= — id или название места. Для API-фильтра (type 3105) нужен числовой id справочника 7116.
+async function resolveLocationId(store){
+  if (!store) return null;
+  if (/^\d+$/.test(store)) return Number(store);
+  // название вместо id — ищем в справочнике мест (7116, ~5 записей, дёшево)
+  const d = await api(`/directory/${CONFIG.STORE_DIRECTORY_ID}/entry/list`, {
+    offset: 0, pageSize: 100, fields: "key,18884"
+  });
+  const norm = s => String(s || "").trim().toLowerCase();
+  const rows = d.directoryEntries || [];
+  const hit = rows.find(e => norm(cf(e, 18884).value) === norm(store));
+  return hit ? hit.key : null;
+}
+
+// Читаем записи "Движения" (4054), отфильтрованные СЕРВЕРНО по месту (type 3105).
+// Пагинация растущими параллельными пачками — не зависит от текущего объёма данных:
+// если очередной круг оказался полным, следующий круг вдвое больше (до потолка), это
+// сходится за O(log N) кругов запросов, а не за N/100 последовательных обращений.
+async function loadMovementForLocation(locationId){
+  // pageSize у Planfix жёстко ограничен 100 (сервер отклоняет больше).
+  // Замерено на этом инстансе: конкурентность ~8 запросов — устойчивый оптимум
+  // (~1.2с независимо от их числа внутри круга); 12-16 параллельно — УЖЕ медленнее
+  // (сервер сам, судя по всему, ограничивает параллелизм — упираться в это бессмысленно).
+  // Поэтому не растим пачку экспоненциально «в бесконечность» — держим круг на 8 и,
+  // если данных больше, просто делаем ещё один круг (столько кругов, сколько нужно,
+  // без каких-либо предположений об объёме — это и даёт устойчивость к росту в сотни раз).
+  const PAGE = 100, BATCH = 8;
+  let offset = 0;
+  const out = [];
+  const filters = [{ type: 3105, field: CONFIG.F_MESTO, operator: "equal", value: locationId }];
+  while (true){
+    const offsets = Array.from({ length: BATCH }, (_, i) => offset + i * PAGE);
+    const pages = await Promise.all(offsets.map(off =>
+      api(`/datatag/${CONFIG.MOVE_DATATAG_ID}/entry/list`, {
+        offset: off, pageSize: PAGE, filters,
+        fields: `key,task,${CONFIG.F_POST},${CONFIG.F_BRON},${CONFIG.F_DEAL}`
+      })
+    ));
+    pages.forEach(d => { if (d.result !== "success") throw new Error(d.error || "ошибка чтения аналитики"); });
+    const rowsPerPage = pages.map(d => d.dataTagEntries || []);
+    rowsPerPage.forEach(rows => out.push(...rows));
+    offset += BATCH * PAGE;
+    if (rowsPerPage[rowsPerPage.length - 1].length < PAGE) break;   // последняя страница круга неполная — дальше пусто
+  }
+  return out;
+}
+
+// Записи движения -> список для отбора: по каждой (задаче-изделию × сделке) — доступное количество.
+// "Без сделки" — единая группа на всех изделий (это НЕ подставная сделка, а буквально "не забронировано").
+function aggregate(entries){
+  const products = new Map();   // taskId -> { name, received, reservedByDeal: Map<dealKeyOrNone,{name,qty}> }
+  entries.forEach(e => {
+    const task = e.task; if (!task) return;
+    const post = Number(cf(e, CONFIG.F_POST).value || 0);
+    const bron = Number(cf(e, CONFIG.F_BRON).value || 0);
+    const deal = cf(e, CONFIG.F_DEAL).value;
+
+    let p = products.get(task.id);
+    if (!p){ p = { name: cleanName(task.name) || ("Изделие без названия (задача #" + task.id + ")"), received: 0, reservedByDeal: new Map() }; products.set(task.id, p); }
+    p.received += post;
+    if (bron){
+      const dealKey = deal ? String(deal.id) : "none";
+      const dealName = deal ? deal.name : "Без сделки";
+      const cur = p.reservedByDeal.get(dealKey) || { name: dealName, qty: 0 };
+      cur.qty += bron;
+      p.reservedByDeal.set(dealKey, cur);
+    }
+  });
+
+  const rows = [];
+  products.forEach((p, taskId) => {
+    let totalReserved = 0;
+    p.reservedByDeal.forEach((d, dealKey) => {
+      totalReserved += d.qty;
+      if (d.qty > 0) rows.push({
+        key: taskId + ":" + dealKey, taskId, name: p.name, qty: d.qty, _ship: d.qty,
+        dealId: dealKey, dealName: d.name
+      });
+    });
+    const free = p.received - totalReserved;
+    if (free > 0) rows.push({
+      key: taskId + ":none", taskId, name: p.name, qty: free, _ship: free,
+      dealId: "none", dealName: "Без сделки"
+    });
+  });
+  return rows;
+}
+
+/* ---- фильтр по сделкам (мультивыбор) — не рефетчит, только сужает уже загруженный список ---- */
+const FSEL = new Set();
 let dealNames = new Map();
 const msDeal = () => $("msDeal");
 const shownItems = () => ITEMS.filter(x => !FSEL.size || FSEL.has(String(x.dealId)));
@@ -290,9 +392,12 @@ function buildDealFilter(pairs){
   const btn = msDeal().querySelector(".ms-btn");
   const pop = msDeal().querySelector(".ms-pop");
   const seen = new Map();
-  pairs.forEach(({id, name}) => { const s = String(id); if (id !== "" && !seen.has(s)) seen.set(s, name); });
+  pairs.forEach(({id, name}) => { const s = String(id); if (!seen.has(s)) seen.set(s, name); });
   dealNames = seen;
-  const entries = [...seen.entries()].sort((a,b) => String(a[1]).localeCompare(String(b[1]), 'ru'));
+  const entries = [...seen.entries()].sort((a,b) => {
+    if (a[0] === "none") return 1; if (b[0] === "none") return -1;   // «Без сделки» — в конец списка
+    return String(a[1]).localeCompare(String(b[1]), 'ru');
+  });
   pop.innerHTML = "";
   const head = document.createElement("div"); head.className = "ms-head";
   head.innerHTML = '<button type="button" class="ms-reset">Сбросить</button>';
@@ -347,25 +452,27 @@ function renderChips(){
 
 document.addEventListener("click", () => closePop());
 
+let RENDER_ORDER = [];   // плоский порядок строк на экране — для Shift-диапазона
+let lastClicked = null;  // последняя строка, по которой кликнули (якорь для Shift)
+
 function render(){
   const list = $("list"); list.innerHTML = "";
   const shown = shownItems();
+  RENDER_ORDER = [];
 
-  // группировка по сделке (порядок сохраняется)
   const groups = []; const byKey = new Map();
   shown.forEach(x => {
-    const prefix = (x.name.match(/^\s*\[([^\]]*)\]/) || [,""])[1];
-    const key = String(x.dealId || ("p:" + prefix));
+    const key = String(x.dealId);
     let g = byKey.get(key);
-    if (!g){ g = { key, name: x.dealName || prefix || "Без сделки", items: [] }; byKey.set(key, g); groups.push(g); }
+    if (!g){ g = { key, name: x.dealName, items: [] }; byKey.set(key, g); groups.push(g); }
     g.items.push(x);
   });
+  groups.sort((a,b) => a.key === "none" ? 1 : b.key === "none" ? -1 : 0);
 
   groups.forEach(g => {
-    // кликабельный заголовок сделки — выбирает/снимает всю группу
     const head = document.createElement("li");
     head.className = "group";
-    head.title = "Выбрать всю сделку";
+    head.title = "Выбрать всю группу";
     head.innerHTML = '<span class="gname"></span><span class="gcount"></span>';
     head.querySelector(".gname").textContent = g.name;
     const gQty = g.items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
@@ -385,23 +492,29 @@ function render(){
         '<span class="t"><span class="nm"></span></span>' +
         '<span class="qty"></span>' +
         '<span class="ship"><input type="number" min="1" step="1" inputmode="numeric"></span>';
-      li.querySelector(".nm").textContent = stripPrefix(x.name);   // без префикса [ДД…]
-      li.querySelector(".qty").textContent = x.qty;                // «На складе»
+      li.querySelector(".nm").textContent = x.name;
+      li.querySelector(".qty").textContent = x.qty;
       const chk = li.querySelector(".chk");
       chk.checked = !!x._sel;
       const inp = li.querySelector(".ship input");
       inp.max = x.qty;
       inp.value = Number.isFinite(x._ship) ? x._ship : "";
       inp.classList.toggle("bad", !shipValid(x));
-      // клик по строке (кроме поля «Отгружаем») — переключить выбор
+      RENDER_ORDER.push(x);
+      // обычный клик / Ctrl / Cmd — переключает только эту строку (и так было, модификатор не нужен).
+      // Shift — выбирает диапазон от последней кликнутой строки до этой (стандартное поведение списков).
       li.addEventListener("click", (e) => {
         if (e.target.closest(".ship")) return;
-        x._sel = !x._sel;
-        chk.checked = x._sel;
-        li.classList.toggle("sel", x._sel);
-        refresh();
+        if (e.shiftKey && lastClicked && RENDER_ORDER.includes(lastClicked)){
+          const from = RENDER_ORDER.indexOf(lastClicked), to = RENDER_ORDER.indexOf(x);
+          const [lo, hi] = from < to ? [from, to] : [to, from];
+          for (let i = lo; i <= hi; i++) RENDER_ORDER[i]._sel = true;
+        } else {
+          x._sel = !x._sel;
+        }
+        lastClicked = x;
+        render();
       });
-      // ручной ввод «Отгружаем» + валидация (>0 и ≤ «На складе»)
       inp.addEventListener("input", () => {
         x._ship = parseFloat(String(inp.value).replace(",", "."));
         inp.classList.toggle("bad", !shipValid(x));
@@ -423,27 +536,22 @@ const sumShip = arr => arr.reduce((s, x) => s + (Number.isFinite(x._ship) ? x._s
 function refresh(){
   const sel = selected();
   const n = sel.length;
-  // позиции / штуки (сумма «Отгружаем»)
   $("counter").innerHTML = 'Выбрано: <b>' + n + '</b> поз. / <b>' + sumShip(sel) + '</b> изд.';
-  // «Готово» активна, только если выбрано ≥1 и у всех выбранных корректное «Отгружаем»
   $("go").disabled = n === 0 || sel.some(x => !shipValid(x));
-  $("clearAll").style.display = n > 0 ? "" : "none";   // кнопка очистки — только когда что-то выбрано
+  $("clearAll").style.display = n > 0 ? "" : "none";
 }
 
-$("toggleAll").addEventListener("click", () => {
-  // только выделяет всё показанное (снятие — кнопкой «Очистить все»)
-  shownItems().forEach(x => x._sel = true);
-  render();
-});
-$("clearAll").addEventListener("click", () => { ITEMS.forEach(x => x._sel = false); render(); });   // снять весь выбор
+$("toggleAll").addEventListener("click", () => { shownItems().forEach(x => x._sel = true); render(); });
+$("clearAll").addEventListener("click", () => { ITEMS.forEach(x => x._sel = false); render(); });
 
 function showMsg(t, kind){ const m=$("msg"); m.textContent=t; m.className="msg "+kind; }
 
 function finishScreen(n){
   $("app").innerHTML =
     '<div class="done"><div class="ic">✅</div><h2>Готово</h2>' +
-    '<p>Отгружено позиций: ' + n + '<br>Окно можно закрыть.</p></div>';
-  setTimeout(() => { try { window.close(); } catch(e){} }, 1200);
+    '<p>Отгружено позиций: ' + n + '<br>Эту вкладку можно закрыть.</p></div>';
+  // окно теперь — обычная вкладка (не popup, открытый скриптом), window.close() браузер не даст —
+  // поэтому не пытаемся закрывать автоматически, просто показываем, что вкладку можно закрыть вручную.
 }
 
 $("go").addEventListener("click", async () => {
@@ -451,56 +559,71 @@ $("go").addEventListener("click", async () => {
   if (!sel.length) return;
   $("go").disabled = true; $("go").textContent = "Отправка…";
 
-  // Аналитика 4040 через POST /task/{id}/datatags/  (создаёт комментарий с записями).
-  // items[] — по строке на каждое выбранное изделие.
+  // Аналитика 4040 через POST /task/{id}/datatags/. Поле 18098 (Task) — id задачи-изделия
+  // напрямую, справочник 7090 в этой цепочке не участвует.
   const body = {
-    dataTag: { id: CONFIG.DATATAG_ID },
-    items: sel.map(x => ({
-      customFieldData: [
-        { field: { id: CONFIG.DT_ITEM },    value: { id: x.key } },  // Изделие -> запись справочника 7090
-        { field: { id: CONFIG.DT_SHIPPED }, value: x._ship }         // Отгружаем = введённое количество
-      ]
-    }))
+    dataTag: { id: CONFIG.WRITE_DATATAG_ID },
+    items: sel.map(x => {
+      const fields = [
+        { field: { id: CONFIG.DT_ITEM_TASK }, value: { id: x.taskId } },
+        { field: { id: CONFIG.DT_SHIPPED },   value: x._ship }
+      ];
+      if (x.dealId !== "none") fields.push({ field: { id: CONFIG.DT_DEAL }, value: { id: Number(x.dealId) } });
+      return { customFieldData: fields };
+    })
   };
-
-  if (!liveReady){
-    console.log("[ДЕМО] POST /task/" + taskId + "/datatags/\n" + JSON.stringify(body, null, 2));
-    showMsg("Демо-режим: в Planfix не отправлено. Позиций: " + sel.length, "ok");
-    setTimeout(() => finishScreen(sel.length), 700);
-    return;
-  }
 
   try{
     const d = await api(`/task/${encodeURIComponent(taskId)}/datatags/`, body);
     if (d.result !== "success") throw new Error(d.error || "ошибка отправки");
     // затираем прежние записи 4040 на этой задаче
-    await Promise.all(existingEntryKeys.map(k => apiDELETE(`/datatag/entry/${k}`)));
+    await Promise.all(existingEntryKeys.map(k =>
+      fetch(CONFIG.BASE + `/datatag/entry/${k}`, { method: "DELETE", headers: { "Authorization": "Bearer " + CONFIG.TOKEN } })
+        .then(r => r.json().catch(() => ({})))
+    ));
     existingEntryKeys = [];
     finishScreen(sel.length);
   }catch(err){
     showMsg("Не удалось отправить в Planfix: " + err.message, "err");
     $("go").disabled = false; $("go").textContent = "Готово";
+    reportError("отправка («Готово»)", err);
   }
 });
 
 // старт
 (async () => {
+  const __t0 = performance.now();
   try{
-    ITEMS = await loadAll();
-    // Жёсткий фильтр по Месту хранения из URL (?store=...): принимает id ИЛИ название места
-    if (forcedStore){
-      const norm = s => String(s == null ? "" : s).trim().toLowerCase();
-      ITEMS = ITEMS.filter(x => String(x.storeId) === forcedStore || norm(x.storeName) === norm(forcedStore));
-    }
-    await loadExisting();   // пред-отметка изделий, уже добавленных в аналитику задачи
+    if (!forcedStore){ $("state").textContent = "Не указано место (?store=) — для этого источника обязательно"; return; }
+    const locId = await resolveLocationId(forcedStore);
+    if (!locId){ $("state").textContent = "Место не найдено: " + forcedStore; return; }
+
+    const [entries, existing] = await Promise.all([
+      loadMovementForLocation(locId),
+      loadExistingRaw()
+    ]);
+    setHeader(existing.taskName);
+
+    ITEMS = aggregate(entries);
+    // пред-отметка: сопоставляем уже добавленные записи 4040 с текущими строками.
+    // Приоритет: точное совпадение (задача + сделка) -> совпадение по задаче и количеству -> первая попавшаяся с этой задачей.
+    existing.rows.forEach(r => {
+      const candidates = ITEMS.filter(x => x.taskId === r.taskId);
+      const it = candidates.find(x => x.dealId === r.dealId)
+              || candidates.find(x => x.qty === r.ship)
+              || candidates[0];
+      if (it){ it._sel = true; it._ship = r.ship; }
+    });
     buildDealFilter(ITEMS.map(x => ({ id: x.dealId, name: x.dealName })));
     $("msDeal").style.display = "flex";
     $("toolbar").style.display = "flex";
     $("colhead").style.display = "flex";
-    if (!ITEMS.length){ $("state").textContent = forcedStore ? "Нет изделий по этому месту хранения (кол-во > 0)" : "Нет доступных изделий (кол-во > 0)"; }
+    if (!ITEMS.length){ $("state").textContent = "Нет изделий в наличии по этому месту"; }
     render();
+    $("perf").textContent = "Записей движения: " + entries.length + " · изделий: " + ITEMS.length + " · загрузка: " + Math.round(performance.now()-__t0) + " мс";
   }catch(err){
     $("state").textContent = "Ошибка загрузки: " + err.message;
+    reportError("загрузка формы", err);
   }
 })();
 </script>
