@@ -166,7 +166,7 @@
 /* ============================================================
    НАСТРОЙКИ
    ============================================================ */
-const APP_VERSION = "2.0.0 · 09.10.2026";
+const APP_VERSION = "2.0.1 · 09.10.2026";
 
 const CONFIG = {
   BASE:  "https://whb.planfix.ru/rest",
@@ -549,9 +549,19 @@ function showMsg(t, kind){ const m=$("msg"); m.textContent=t; m.className="msg "
 function finishScreen(n){
   $("app").innerHTML =
     '<div class="done"><div class="ic">✅</div><h2>Готово</h2>' +
-    '<p>Отгружено позиций: ' + n + '<br>Эту вкладку можно закрыть.</p></div>';
-  // окно теперь — обычная вкладка (не popup, открытый скриптом), window.close() браузер не даст —
-  // поэтому не пытаемся закрывать автоматически, просто показываем, что вкладку можно закрыть вручную.
+    '<p>Отгружено позиций: ' + n + '</p>' +
+    '<p id="closeHint" style="color:var(--muted)">Закрываем вкладку…</p></div>';
+  // Пробуем закрыть саму вкладку. Это уже не popup, открытый скриптом (как раньше),
+  // а обычная вкладка после location.replace из open.html — часть браузеров всё же
+  // даёт её закрыть скриптом, если в истории вкладки нет страниц "назад" (ровно наш случай,
+  // open.html сделал replace, а не push). Если браузер откажет — молча подменяем подсказку.
+  setTimeout(() => {
+    try { window.close(); } catch(e){}
+    setTimeout(() => {
+      const hint = document.getElementById("closeHint");
+      if (hint) hint.textContent = "Вкладку можно закрыть вручную.";
+    }, 500);
+  }, 300);
 }
 
 $("go").addEventListener("click", async () => {
